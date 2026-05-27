@@ -20,16 +20,8 @@ All hyper-parameters are exposed as CLI flags; see ``python train.py --help``.
 import argparse
 import os
 
-# ---------------------------------------------------------------------------
-# Environment – must be set before any zea / Keras / JAX / TF import
-# ---------------------------------------------------------------------------
 os.environ["KERAS_BACKEND"] = "tensorflow"
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-# grain/zea always imports JAX as a side-effect even when the Keras backend is
-# TensorFlow.  By default JAX pre-allocates ~75 % of GPU memory, which
-# competes directly with TF and causes gradual OOM-driven slowdown.
-# Forcing JAX onto CPU eliminates the conflict entirely; the Dataloader
-# already processes data on CPU (keras.device("cpu")), so nothing is lost.
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
@@ -120,10 +112,6 @@ def parse_args():
     )
 
     return parser.parse_args()
-
-
-
-
 
 
 class GenerationPlotCallback(keras.callbacks.Callback):
@@ -285,8 +273,6 @@ def main():
         ),
     ]
 
-    # Build the model explicitly: the UNet takes [images, noise_variances]
-    # so Keras cannot infer both input shapes from the data alone.
     dummy_images = np.zeros((1, *input_shape), dtype="float32")
     dummy_noise_vars = np.zeros((1, 1, 1, 1), dtype="float32")
     model([dummy_images, dummy_noise_vars])
@@ -295,13 +281,12 @@ def main():
     model.fit(
         train_ds,
         epochs=args.epochs,
-        steps_per_epoch=167965//args.batch_size,
+        steps_per_epoch=167965//args.batch_size, # 10% of dataset length
         validation_data=val_ds,
-        validation_steps=18694//args.batch_size,
+        validation_steps=18694//args.batch_size, # 10% of dataset length
         callbacks=callbacks,
     )
 
-    # Save final model regardless of callback settings
     final_path = os.path.join(args.output_dir, f"{args.model}_final.keras")
     model.save(final_path)
     log.info(f"Saved final model to {final_path}")

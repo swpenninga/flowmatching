@@ -1,9 +1,5 @@
 """Pure tf.data dataloader for EchoNetLVH HDF5 dataset.
 
-Replaces the zea/grain Dataloader to avoid grain-TensorFlow threading
-deadlocks. The entire pipeline is tf.data-native, which manages
-prefetching and thread pools safely alongside ``model.fit()``.
-
 Pipeline
 --------
 HDF5 files → interleave (h5py reads) → individual frames
