@@ -50,7 +50,7 @@ VAL_DATA_PATH = "/data/USBMD_datasets/EchoNet-LVH/val"
 # the number of trainable parameters is identical.
 UNET_KWARGS = dict(
     widths=[64, 96, 128, 256],
-    block_depth=2,
+    block_depth=3,
     embedding_dims=64,
     embedding_min_frequency=1.0,
     embedding_max_frequency=1000.0,
@@ -243,8 +243,15 @@ def main():
 
     # ---- model ----------------------------------------------------------
     model = build_model(args.model, input_shape, args.ema_val)
+    steps_per_epoch = 167965 // args.batch_size
+    total_steps = args.epochs * steps_per_epoch
+    lr_schedule = keras.optimizers.schedules.CosineDecay(
+        initial_learning_rate=args.lr,
+        decay_steps=total_steps,
+        alpha=1e-6 / args.lr,
+    )
     model.compile(
-        optimizer=keras.optimizers.AdamW(learning_rate=args.lr),
+        optimizer=keras.optimizers.AdamW(learning_rate=lr_schedule),
         loss=keras.losses.MeanSquaredError(),
     )
     log.info(f"UNet trainable parameters : {model.network.count_params():,}")
@@ -281,7 +288,7 @@ def main():
     model.fit(
         train_ds,
         epochs=args.epochs,
-        steps_per_epoch=167965//args.batch_size, # 10% of dataset length
+        steps_per_epoch=steps_per_epoch, # 10% of dataset length
         validation_data=val_ds,
         validation_steps=18694//args.batch_size, # 10% of dataset length
         callbacks=callbacks,
