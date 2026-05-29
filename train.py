@@ -174,38 +174,6 @@ class GenerationPlotCallback(keras.callbacks.Callback):
         log.info(f"Saved sample plot → {save_path}")
 
 
-class BestEMAWeightsCallback(keras.callbacks.Callback):
-    """Save the EMA network weights whenever the monitored metric improves.
-
-    Args:
-        filepath: Path to save the EMA weights (``model.weights.h5`` style).
-        monitor: Metric name to monitor (e.g. ``"val_v_loss"``).
-        mode: ``"min"`` or ``"max"``.
-        verbose: Verbosity level.
-    """
-
-    def __init__(self, filepath, monitor="val_loss", mode="min", verbose=1):
-        super().__init__()
-        self.filepath = filepath
-        self.monitor = monitor
-        self.verbose = verbose
-        self.best = np.inf if mode == "min" else -np.inf
-        self._is_better = (lambda a, b: a < b) if mode == "min" else (lambda a, b: a > b)
-
-    def on_epoch_end(self, epoch, logs=None):
-        current = (logs or {}).get(self.monitor)
-        if current is None:
-            return
-        if self._is_better(current, self.best):
-            self.best = current
-            self.model.ema_network.save_weights(self.filepath)
-            if self.verbose:
-                log.info(
-                    f"Epoch {epoch + 1}: {self.monitor} improved to {current:.6f} "
-                    f"— saved EMA weights to {self.filepath}"
-                )
-
-
 def build_model(model_type, input_shape, ema_val):
     """Instantiate the requested model with a shared UNet architecture.
 
@@ -294,18 +262,11 @@ def main():
     checkpoint_path = os.path.join(args.output_dir, f"{args.model}.keras")
 
     monitor_metric = "val_v_loss" if args.model == "flow_matching" else "val_n_loss"
-    ema_weights_path = os.path.join(args.output_dir, f"{args.model}_ema_best.weights.h5")
 
     callbacks = [
         keras.callbacks.ModelCheckpoint(
             filepath=checkpoint_path,
             save_best_only=args.save_best_only,
-            monitor=monitor_metric,
-            mode="min",
-            verbose=1,
-        ),
-        BestEMAWeightsCallback(
-            filepath=ema_weights_path,
             monitor=monitor_metric,
             mode="min",
             verbose=1,
