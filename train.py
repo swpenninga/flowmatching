@@ -54,6 +54,7 @@ UNET_KWARGS = dict(
     embedding_dims=64,
     embedding_min_frequency=1.0,
     embedding_max_frequency=1000.0,
+    normalization="group_norm",
 )
 
 
@@ -88,7 +89,7 @@ def parse_args():
     )
 
     # ---- training -------------------------------------------------------
-    parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs.")
+    parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
     parser.add_argument(
         "--ema_val",
@@ -173,6 +174,38 @@ class GenerationPlotCallback(keras.callbacks.Callback):
         log.info(f"Saved sample plot → {save_path}")
 
 
+class BestEMAWeightsCallback(keras.callbacks.Callback):
+    """Save the EMA network weights whenever the monitored metric improves.
+
+    Args:
+        filepath: Path to save the EMA weights (``model.weights.h5`` style).
+        monitor: Metric name to monitor (e.g. ``"val_v_loss"``).
+        mode: ``"min"`` or ``"max"``.
+        verbose: Verbosity level.
+    """
+
+    def __init__(self, filepath, monitor="val_loss", mode="min", verbose=1):
+        super().__init__()
+        self.filepath = filepath
+        self.monitor = monitor
+        self.verbose = verbose
+        self.best = np.inf if mode == "min" else -np.inf
+        self._is_better = (lambda a, b: a < b) if mode == "min" else (lambda a, b: a > b)
+
+    def on_epoch_end(self, epoch, logs=None):
+        current = (logs or {}).get(self.monitor)
+        if current is None:
+            return
+        if self._is_better(current, self.best):
+            self.best = current
+            self.model.ema_network.save_weights(self.filepath)
+            if self.verbose:
+                log.info(
+                    f"Epoch {epoch + 1}: {self.monitor} improved to {current:.6f} "
+                    f"— saved EMA weights to {self.filepath}"
+                )
+
+
 def build_model(model_type, input_shape, ema_val):
     """Instantiate the requested model with a shared UNet architecture.
 
@@ -187,7 +220,7 @@ def build_model(model_type, input_shape, ema_val):
     """
     common_kwargs = dict(
         input_shape=input_shape,
-        input_range=(0, 1),
+        input_range=(-1, 1),
         network_name="unet_time_conditional",
         network_kwargs=UNET_KWARGS,
         ema_val=ema_val,
@@ -260,11 +293,20 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     checkpoint_path = os.path.join(args.output_dir, f"{args.model}.keras")
 
+    monitor_metric = "val_v_loss" if args.model == "flow_matching" else "val_n_loss"
+    ema_weights_path = os.path.join(args.output_dir, f"{args.model}_ema_best.weights.h5")
+
     callbacks = [
         keras.callbacks.ModelCheckpoint(
             filepath=checkpoint_path,
             save_best_only=args.save_best_only,
-            monitor="val_v_loss" if args.model == "flow_matching" else "val_n_loss",
+            monitor=monitor_metric,
+            mode="min",
+            verbose=1,
+        ),
+        BestEMAWeightsCallback(
+            filepath=ema_weights_path,
+            monitor=monitor_metric,
             mode="min",
             verbose=1,
         ),
